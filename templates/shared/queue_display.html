@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Queue Display — MediFlow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body class="kiosk-body">
+  <div class="kiosk-header">
+    <h1>Medi<span>Flow</span></h1>
+    <p>{{ hospital.name if hospital else 'Hospital' }} — Live Queue</p>
+    <div style="font-family:var(--font-mono);color:var(--accent);margin-top:8px;font-size:18px" id="kiosk-clock">--:--:--</div>
+  </div>
+
+  <div class="kiosk-grid" id="kiosk-queue">
+    <div class="empty" style="grid-column:1/-1"><div class="icon" style="font-size:48px">⏳</div>Loading queue...</div>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+<script>
+const HOSPITAL_ID = {{ hospital.id if hospital else 1 }};
+
+function updateClock() {
+  document.getElementById('kiosk-clock').textContent = new Date().toLocaleTimeString('en-IN', { hour12: false });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+async function loadQueue() {
+  try {
+    const res = await fetch('/api/queue', { credentials: 'same-origin' });
+    if (res.status === 401) {
+      // Kiosk mode — try without auth, show message
+      document.getElementById('kiosk-queue').innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon" style="font-size:48px">🔒</div>Login required for queue data.<br>Use admin account to access.</div>';
+      return;
+    }
+    const queue = await res.json();
+    const grid = document.getElementById('kiosk-queue');
+
+    if (!queue.length) {
+      grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon" style="font-size:48px">✓</div><div style="font-size:24px;margin-top:12px">Queue is clear!</div></div>';
+      return;
+    }
+    grid.innerHTML = queue.map(e => `
+      <div class="kiosk-card priority-${e.priority_label}">
+        <div class="kiosk-token">${e.token}</div>
+        <div class="kiosk-name">${e.patient_name}</div>
+        <div class="kiosk-dept">${e.doctor_name} · ${e.department}</div>
+        <div style="margin-top:12px">${
+          e.priority_label === 'critical' ? '<span class="badge badge-critical" style="font-size:14px;padding:4px 12px">CRITICAL</span>'
+          : e.priority_label === 'urgent' ? '<span class="badge badge-urgent" style="font-size:14px;padding:4px 12px">URGENT</span>'
+          : '<span class="badge badge-normal" style="font-size:14px;padding:4px 12px">Normal</span>'
+        }</div>
+        <div style="margin-top:8px;font-family:var(--font-mono);color:var(--muted)">~${e.est_wait_minutes} min</div>
+      </div>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+// SocketIO for real-time
+const socket = io();
+socket.on('connect', () => socket.emit('join_hospital', { hospital_id: HOSPITAL_ID }));
+socket.on('queue_updated', () => loadQueue());
+
+loadQueue();
+setInterval(loadQueue, 10000);
+</script>
+</body>
+</html>

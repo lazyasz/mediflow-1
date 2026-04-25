@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}Book Specialist{% endblock %}
+{% block page_title %}Book Specialist Appointment{% endblock %}
+
+{% block nav %}
+<div class="nav-section">Patient</div>
+<a class="nav-item" href="/patient"><span class="icon">⬡</span> Dashboard</a>
+<a class="nav-item active" href="/patient/appointments"><span class="icon">📅</span> Book Specialist</a>
+{% endblock %}
+
+{% block content %}
+<div class="two-col">
+  <!-- Booking Form -->
+  <div>
+    <div class="panel" style="margin-bottom:20px">
+      <h3>📅 Select Department & Doctor</h3>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Department</label>
+          <select id="bk-dept" onchange="loadDoctorSuggestions()">
+            <option value="">Select department...</option>
+            {% for dept in departments %}
+            <option value="{{ dept }}">{{ dept }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="bk-date" onchange="loadSlots()" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Doctor suggestions -->
+    <div class="section-header"><span class="section-title">Available Doctors</span></div>
+    <div id="doctor-list" class="queue-list">
+      <div class="empty"><div class="icon">👨‍⚕️</div>Select a department to see doctors</div>
+    </div>
+  </div>
+
+  <!-- Right: Slots + Booking -->
+  <div>
+    <div class="panel" style="margin-bottom:16px">
+      <h3>🕐 Available Slots</h3>
+      <div id="slot-container">
+        <div class="empty">Select a doctor and date to see slots</div>
+      </div>
+    </div>
+
+    <!-- My Appointments -->
+    <div class="panel">
+      <h3>📋 My Appointments</h3>
+      <div id="my-appointments">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('confirm-modal')">×</button>
+    <h3>✅ Confirm Booking</h3>
+    <div id="confirm-details" style="margin-bottom:20px"></div>
+    <div class="form-group">
+      <label>Type</label>
+      <select id="bk-type">
+        <option value="in-person">In-Person</option>
+        <option value="telemedicine">Telemedicine</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-top:12px">
+      <label>Notes (optional)</label>
+      <textarea id="bk-notes" rows="2" placeholder="Any notes for the doctor"></textarea>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('confirm-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="confirmBooking()">Confirm Booking</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PATIENT_ID = {{ patient.id if patient else 0 }};
+let selectedDoctor = null;
+let selectedSlot = null;
+let selectedDate = null;
+
+// Set min/max dates
+const dateInput = document.getElementById('bk-date');
+const today = new Date().toISOString().split('T')[0];
+const maxDate = new Date(Date.now() + 30*86400000).toISOString().split('T')[0];
+dateInput.min = today;
+dateInput.max = maxDate;
+dateInput.value = today;
+
+async function loadDoctorSuggestions() {
+  const dept = document.getElementById('bk-dept').value;
+  const date = document.getElementById('bk-date').value;
+  if (!dept) return;
+  try {
+    const doctors = await api(`/api/appointments/doctors?department=${encodeURIComponent(dept)}&date=${date}`);
+    const list = document.getElementById('doctor-list');
+    if (!doctors.length) {
+      list.innerHTML = '<div class="empty">No doctors available</div>';
+      return;
+    }
+    list.innerHTML = doctors.map(d => `
+      <div class="queue-card priority-normal" style="cursor:pointer" onclick="selectDoctor(${d.id}, '${d.name}', '${d.department}')">
+        <div class="token-big">👨‍⚕️</div>
+        <div class="patient-info">
+          <div class="name">${d.name}</div>
+          <div class="meta">${d.department} · ${d.specialization || ''}</div>
+        </div>
+        <div class="wait">
+          <div class="mins" style="color:var(--normal)">${d.available_slots}</div>
+          <div class="label">slots free</div>
+        </div>
+      </div>`).join('');
+  } catch (e) { console.error(e); }
+}
+
+function selectDoctor(id, name, dept) {
+  selectedDoctor = { id, name, dept };
+  // Highlight
+  document.querySelectorAll('#doctor-list .queue-card').forEach(c => c.style.borderColor = '');
+  event.currentTarget.style.borderColor = 'var(--accent)';
+  loadSlots();
+}
+
+async function loadSlots() {
+  if (!selectedDoctor) return;
+  const date = document.getElementById('bk-date').value;
+  if (!date) return;
+  selectedDate = date;
+  try {
+    const data = await api(`/api/appointments/slots?doctor_id=${selectedDoctor.id}&date=${date}`);
+    const container = document.getElementById('slot-container');
+    if (!data.slots.length) {
+      container.innerHTML = '<div class="empty">No available slots</div>';
+      return;
+    }
+    container.innerHTML = '<div class="slot-grid">' + data.slots.map(s =>
+      `<button class="slot-btn" onclick="selectSlot(this, '${s}')">${s}</button>`
+    ).join('') + '</div>';
+  } catch (e) { console.error(e); }
+}
+
+function selectSlot(el, slot) {
+  selectedSlot = slot;
+  document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  // Show confirm
+  document.getElementById('confirm-details').innerHTML = `
+    <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;display:grid;gap:8px">
+      <div><span style="color:var(--muted)">Doctor:</span> <strong>${selectedDoctor.name}</strong></div>
+      <div><span style="color:var(--muted)">Department:</span> ${selectedDoctor.dept}</div>
+      <div><span style="color:var(--muted)">Date:</span> <span style="font-family:var(--font-mono)">${selectedDate}</span></div>
+      <div><span style="color:var(--muted)">Time:</span> <span style="font-family:var(--font-mono);color:var(--accent)">${selectedSlot}</span></div>
+    </div>`;
+  openModal('confirm-modal');
+}
+
+async function confirmBooking() {
+  try {
+    const res = await api('/api/appointments/book', {
+      method: 'POST',
+      body: JSON.stringify({
+        patient_id: PATIENT_ID,
+        doctor_id: selectedDoctor.id,
+        date: selectedDate,
+        time_slot: selectedSlot,
+        type: document.getElementById('bk-type').value,
+        notes: document.getElementById('bk-notes').value,
+      }),
+    });
+    closeModal('confirm-modal');
+    toast('Booked!', `Appointment with ${selectedDoctor.name} on ${selectedDate} at ${selectedSlot}`, 'success');
+    loadSlots();
+    loadMyAppointments();
+  } catch (e) { toast('Error', e.message, 'error'); }
+}
+
+async function loadMyAppointments() {
+  try {
+    const appts = await api('/api/appointments');
+    const el = document.getElementById('my-appointments');
+    if (!appts.length) { el.innerHTML = '<div class="empty">No appointments</div>'; return; }
+    el.innerHTML = appts.map(a => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-weight:600;font-size:13px">${a.doctor_name}</div>
+          <div style="font-size:11px;color:var(--muted)">${a.department} · ${a.date} · ${a.time_slot}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${typeBadge(a.type)} ${statusBadge(a.status)}
+        </div>
+      </div>`).join('');
+  } catch (e) {}
+}
+
+document.addEventListener('DOMContentLoaded', loadMyAppointments);
+</script>
+{% endblock %}

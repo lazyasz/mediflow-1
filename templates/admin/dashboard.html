@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block page_title %}Admin Dashboard{% endblock %}
+
+{% block nav %}
+<div class="nav-section">Admin</div>
+<a class="nav-item active" href="/admin"><span class="icon">📊</span> Dashboard</a>
+<a class="nav-item" href="/admin/logs"><span class="icon">📜</span> Activity Logs</a>
+<a class="nav-item" href="/admin/manage"><span class="icon">⚙️</span> Manage</a>
+<a class="nav-item" href="/queue-display?hospital_id={{ hospital.id if hospital else 1 }}" target="_blank"><span class="icon">📺</span> Queue Display</a>
+{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-danger btn-sm" onclick="triggerRebalance()">⚡ Rebalance</button>
+<button class="btn btn-ghost btn-sm" onclick="refreshAll()">↻ Refresh</button>
+{% endblock %}
+
+{% block content %}
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card accent"><div class="label">Waiting Now</div><div class="value" id="stat-waiting">—</div><div class="sub">patients in queue</div></div>
+  <div class="stat-card critical"><div class="label">Critical</div><div class="value" id="stat-critical">—</div><div class="sub">immediate attention</div></div>
+  <div class="stat-card urgent"><div class="label">Avg Wait</div><div class="value" id="stat-avg">—</div><div class="sub">minutes</div></div>
+  <div class="stat-card success"><div class="label">Completed</div><div class="value" id="stat-completed">—</div><div class="sub">today</div></div>
+</div>
+
+<div class="two-col">
+  <div>
+    <!-- Department Load -->
+    <div class="panel" style="margin-bottom:20px">
+      <h3>📊 Department Load</h3>
+      <div class="dept-load" id="dept-load"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- Queue Snapshot -->
+    <div class="section-header"><span class="section-title">Queue Snapshot</span></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Token</th><th>Patient</th><th>Doctor</th><th>Department</th><th>Priority</th><th>Wait</th></tr></thead>
+        <tbody id="queue-body"><tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Analytics -->
+    <div class="analytics-grid" style="margin-top:20px">
+      <div class="chart-container">
+        <h4>🕐 Peak Hours (Last 7 Days)</h4>
+        <div class="bar-chart" id="peak-chart"></div>
+      </div>
+      <div class="chart-container">
+        <h4>👨‍⚕️ Doctor Efficiency</h4>
+        <div id="doctor-efficiency"><div class="empty">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right side -->
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <!-- Call Next -->
+    <div class="panel">
+      <h3>📣 Call Next Patient</h3>
+      <div class="call-next-panel" id="call-next-panel">
+        {% for doc in doctors %}
+        <button class="doctor-btn" onclick="callNext(parseInt('{{ doc.id }}', 10), '{{ doc.name }}')">
+          {{ doc.name }} <span style="color:var(--muted)">({{ doc.department }})</span><span class="arrow">→</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Feed -->
+    <div class="panel">
+      <h3>📜 Live Feed</h3>
+      <div class="feed-list" id="feed-list"><div class="empty">Loading...</div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function refreshStats() {
+  try {
+    const s = await api('/api/admin/stats');
+    document.getElementById('stat-waiting').textContent = s.total_waiting;
+    document.getElementById('stat-critical').textContent = s.critical_count;
+    document.getElementById('stat-avg').textContent = s.avg_wait_minutes;
+    document.getElementById('stat-completed').textContent = s.completed_today || 0;
+
+    const dept = document.getElementById('dept-load');
+    const max = Math.max(...s.department_loads.map(d => d.count), 1);
+    dept.innerHTML = s.department_loads.length ? s.department_loads.map(d => `
+      <div class="dept-row">
+        <div class="label"><span>${d.department}</span><span>${d.count} waiting</span></div>
+        <div class="bar-bg"><div class="bar-fill" style="width:${(d.count/max*100)}%"></div></div>
+      </div>`).join('') : '<div class="empty">No patients waiting</div>';
+  } catch(e) { console.error(e); }
+}
+
+async function refreshQueue() {
+  try {
+    const queue = await api('/api/queue');
+    const tbody = document.getElementById('queue-body');
+    if (!queue.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Queue empty</td></tr>';
+      return;
+    }
+    tbody.innerHTML = queue.slice(0, 10).map(e => `
+      <tr>
+        <td><span class="token">${e.token}</span></td>
+        <td>${e.patient_name}</td>
+        <td>${e.doctor_name}</td>
+        <td>${e.department}</td>
+        <td>${priorityBadge(e.priority_label)}</td>
+        <td style="font-family:var(--font-mono)">${e.est_wait_minutes} min</td>
+      </tr>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function refreshFeed() {
+  try {
+    const feed = await api('/api/activity/feed?limit=20');
+    document.getElementById('feed-list').innerHTML = feed.length
+      ? feed.map(f => `<div class="feed-item">${f.message}<div class="time">${timeAgo(f.timestamp)}</div></div>`).join('')
+      : '<div class="empty">No events</div>';
+  } catch(e) {}
+}
+
+async function loadAnalytics() {
+  try {
+    const hours = await api('/api/admin/analytics/peak-hours');
+    const chart = document.getElementById('peak-chart');
+    const maxCount = Math.max(...hours.map(h => h.count), 1);
+    chart.innerHTML = hours.filter(h => h.hour >= 6 && h.hour <= 22).map(h => {
+      const pct = (h.count / maxCount * 100);
+      return `<div class="bar" style="height:${Math.max(pct, 2)}%"><div class="bar-label">${h.hour}</div></div>`;
+    }).join('');
+  } catch(e) {}
+
+  try {
+    const docs = await api('/api/admin/analytics/doctors');
+    const el = document.getElementById('doctor-efficiency');
+    if (!docs.length) { el.innerHTML = '<div class="empty">No data</div>'; return; }
+    el.innerHTML = docs.map(d => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-weight:600;font-size:13px">${d.name}</div>
+          <div style="font-size:11px;color:var(--muted)">${d.department}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--font-mono);color:var(--normal)">${d.completed_today} done</div>
+          <div style="font-size:11px;color:var(--muted)">${d.waiting} waiting</div>
+        </div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+async function callNext(doctorId, doctorName) {
+  try {
+    const res = await api('/api/queue/call-next', {
+      method: 'POST', body: JSON.stringify({ doctor_id: doctorId }),
+    });
+    if (res.success) { toast(`Calling ${res.token}`, `${res.name} → ${doctorName}`, 'success'); refreshAll(); }
+    else { toast('Queue Empty', `No patients for ${doctorName}`, 'error'); }
+  } catch(e) { toast('Error', e.message, 'error'); }
+}
+
+async function refreshAll() { await Promise.all([refreshStats(), refreshQueue(), refreshFeed(), loadAnalytics()]); }
+document.addEventListener('DOMContentLoaded', () => { refreshAll(); setInterval(refreshAll, 15000); });
+
+async function triggerRebalance() {
+  try {
+    const res = await api('/api/manage/rebalance', { method: 'POST' });
+    toast('Rebalanced', `${res.patients_rebalanced} patients re-scored`, 'success');
+    refreshQueue();
+  } catch(e) { toast('Error', e.message, 'error'); }
+}
+</script>
+{% endblock %}

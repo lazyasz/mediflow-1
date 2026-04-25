@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — MediFlow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="logo">
+      <h1>Medi<span style="color:var(--accent)">Flow</span></h1>
+      <p>Hospital Queue Management 2.0</p>
+    </div>
+
+    {% if error %}
+    <div class="auth-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/auth/login">
+      <div class="form-grid" style="grid-template-columns:1fr">
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" name="email" placeholder="you@example.com" required autofocus />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" name="password" placeholder="Enter your password" required />
+        </div>
+      </div>
+      <div style="margin-top:20px">
+        <button type="submit" class="btn btn-accent btn-block btn-lg">Sign In →</button>
+      </div>
+    </form>
+
+    <div class="auth-link">
+      Don't have an account? <a href="/auth/register">Create one</a>
+    </div>
+
+    <div class="divider">Demo Credentials</div>
+    <div style="font-size:11px;color:var(--muted);font-family:var(--font-mono);display:grid;gap:4px">
+      <div><span style="color:var(--accent)">Admin:</span> admin@mediflow.com / admin123</div>
+      <div><span style="color:var(--tele)">Doctor:</span> mehta@mediflow.com / doctor123</div>
+      <div><span style="color:var(--normal)">Patient:</span> arjun@mail.com / patient123</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

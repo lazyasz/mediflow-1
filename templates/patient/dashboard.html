@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}Patient Dashboard{% endblock %}
+{% block page_title %}My Dashboard{% endblock %}
+
+{% block nav %}
+<div class="nav-section">Patient</div>
+<a class="nav-item active" href="/patient"><span class="icon">⬡</span> Dashboard</a>
+<a class="nav-item" href="/patient/appointments"><span class="icon">📅</span> Book Specialist</a>
+{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" onclick="refreshAll()">↻ Refresh</button>
+{% endblock %}
+
+{% block content %}
+<!-- Token Display (if in queue) -->
+<div id="my-token-section" style="display:none;margin-bottom:24px">
+  <div class="token-display">
+    <div class="token-label">Your Token</div>
+    <div class="token-number" id="my-token">—</div>
+    <div style="margin-top:16px;display:flex;justify-content:center;gap:32px">
+      <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase">Position</div><div style="font-family:var(--font-head);font-size:28px;font-weight:800;color:var(--urgent)" id="my-position">—</div></div>
+      <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase">Est. Wait</div><div style="font-family:var(--font-head);font-size:28px;font-weight:800;color:var(--accent)" id="my-wait">—</div><div style="font-size:10px;color:var(--muted)">minutes</div></div>
+      <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase">Status</div><div style="font-size:16px;font-weight:600;margin-top:4px" id="my-status">—</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="two-col">
+  <!-- Walk-in Check-in -->
+  <div class="panel" id="checkin-panel">
+    <h3>🏥 Walk-in Check-In</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Department</label>
+        <select id="ci-department" onchange="loadDoctorsForDept()">
+          {% for dept in departments %}
+          <option value="{{ dept }}">{{ dept }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Doctor</label>
+        <select id="ci-doctor">
+          {% for doc in doctors %}
+          <option value="{{ doc.id }}" data-dept="{{ doc.department }}">{{ doc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Priority</label>
+        <select id="ci-priority">
+          <option value="normal">Normal</option>
+          <option value="urgent">Urgent</option>
+          <option value="critical">Critical</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label>Symptoms / Reason</label>
+        <textarea id="ci-symptoms" rows="3" placeholder="Describe your symptoms or reason for visit"></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-accent" onclick="submitCheckin()">Join Queue →</button>
+    </div>
+  </div>
+
+  <!-- Right side -->
+  <div>
+    <!-- Quick Stats -->
+    <div class="stats-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
+      <div class="stat-card accent">
+        <div class="label">Queue Size</div>
+        <div class="value" id="stat-waiting">—</div>
+        <div class="sub">patients waiting</div>
+      </div>
+      <div class="stat-card urgent">
+        <div class="label">Avg Wait</div>
+        <div class="value" id="stat-avg">—</div>
+        <div class="sub">minutes</div>
+      </div>
+    </div>
+
+    <!-- Live Feed -->
+    <div class="panel">
+      <h3>📜 Live Feed</h3>
+      <div class="feed-list" id="feed-list">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Live Queue -->
+<div style="margin-top:24px">
+  <div class="section-header">
+    <span class="section-title">Live Queue</span>
+  </div>
+  <div class="queue-list" id="queue-list">
+    <div class="empty"><div class="icon">⏳</div>Loading queue...</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PATIENT_ID = {{ patient.id if patient else 0 }};
+let myQueueEntry = null;
+
+function loadDoctorsForDept() {
+  const dept = document.getElementById('ci-department').value;
+  const docSelect = document.getElementById('ci-doctor');
+  Array.from(docSelect.options).forEach(opt => {
+    opt.style.display = opt.dataset.dept === dept ? '' : 'none';
+    if (opt.dataset.dept === dept) docSelect.value = opt.value;
+  });
+}
+
+async function submitCheckin() {
+  try {
+    const res = await api('/api/queue/checkin', {
+      method: 'POST',
+      body: JSON.stringify({
+        patient_id: PATIENT_ID,
+        department: document.getElementById('ci-department').value,
+        doctor_id: parseInt(document.getElementById('ci-doctor').value),
+        priority: document.getElementById('ci-priority').value,
+        symptoms: document.getElementById('ci-symptoms').value.trim(),
+      }),
+    });
+    toast('Token Issued!', `Your token: ${res.token} — Est. wait: ~${res.est_wait} min`, 'success');
+    myQueueEntry = { id: res.queue_entry_id, token: res.token };
+    refreshAll();
+  } catch (e) { toast('Error', e.message, 'error'); }
+}
+
+async function refreshQueue() {
+  try {
+    const queue = await api('/api/queue');
+    const list = document.getElementById('queue-list');
+    if (!queue.length) {
+      list.innerHTML = '<div class="empty"><div class="icon">✓</div>Queue is clear!</div>';
+    } else {
+      list.innerHTML = queue.map(e => `
+        <div class="queue-card priority-${e.priority_label}">
+          <div class="token-big">${e.token}</div>
+          <div class="patient-info">
+            <div class="name">${e.patient_name} <span style="color:var(--muted);font-weight:400">· ${e.patient_age}y</span></div>
+            <div class="meta">${e.doctor_name} · ${e.department}</div>
+            <div style="margin-top:4px">${priorityBadge(e.priority_label)}</div>
+          </div>
+          <div class="wait">
+            <div class="mins">${e.est_wait_minutes}</div>
+            <div class="label">min wait</div>
+          </div>
+        </div>`).join('');
+    }
+
+    // Check if I'm in queue
+    const myEntry = queue.find(e => e.patient_id === PATIENT_ID);
+    const section = document.getElementById('my-token-section');
+    if (myEntry) {
+      section.style.display = '';
+      document.getElementById('my-token').textContent = myEntry.token;
+      document.getElementById('my-wait').textContent = myEntry.est_wait_minutes;
+      document.getElementById('my-status').innerHTML = statusBadge(myEntry.status);
+      // Get position
+      try {
+        const pos = await api(`/api/queue/position/${myEntry.id}`);
+        document.getElementById('my-position').textContent = '#' + pos.position;
+      } catch(e) {}
+      document.getElementById('checkin-panel').style.display = 'none';
+    } else {
+      section.style.display = 'none';
+      document.getElementById('checkin-panel').style.display = '';
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function refreshStats() {
+  try {
+    const s = await api('/api/queue/stats');
+    document.getElementById('stat-waiting').textContent = s.total_waiting;
+    document.getElementById('stat-avg').textContent = s.avg_wait_minutes;
+  } catch (e) {}
+}
+
+async function refreshFeed() {
+  try {
+    const feed = await api('/api/activity/feed?limit=20');
+    const el = document.getElementById('feed-list');
+    el.innerHTML = feed.length
+      ? feed.map(f => `<div class="feed-item">${f.message}<div class="time">${timeAgo(f.timestamp)}</div></div>`).join('')
+      : '<div class="empty">No events yet</div>';
+  } catch (e) {}
+}
+
+async function refreshAll() {
+  await Promise.all([refreshQueue(), refreshStats(), refreshFeed()]);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadDoctorsForDept();
+  refreshAll();
+  setInterval(refreshAll, 15000);
+});
+</script>
+{% endblock %}

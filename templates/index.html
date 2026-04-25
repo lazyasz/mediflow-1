@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MediFlow — Hospital Queue Management</title>
+  <meta name="description" content="MediFlow 2.0 — Intelligent Hospital Queue Management System. Smart priority-based queuing, specialist booking, and real-time updates." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <style>
+    .landing { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--bg); padding:24px; text-align:center; }
+    .landing-card { max-width:560px; animation:scaleIn 0.4s ease; }
+    .landing h1 { font-family:var(--font-head); font-size:48px; font-weight:800; margin-bottom:8px; }
+    .landing h1 span { color:var(--accent); }
+    .landing .subtitle { color:var(--muted); font-size:16px; margin-bottom:40px; line-height:1.7; }
+    .landing .cta-row { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; }
+    .features { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:48px; text-align:left; }
+    .feat { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; transition:border-color 0.2s,transform 0.2s; }
+    .feat:hover { border-color:var(--accent-dim); transform:translateY(-2px); }
+    .feat .icon { font-size:24px; margin-bottom:8px; }
+    .feat h3 { font-family:var(--font-head); font-size:14px; font-weight:700; margin-bottom:4px; }
+    .feat p { font-size:12px; color:var(--muted); line-height:1.5; }
+    .version { margin-top:48px; font-family:var(--font-mono); font-size:11px; color:var(--border); }
+    @media(max-width:600px) { .features { grid-template-columns:1fr; } .landing h1 { font-size:32px; } }
+  </style>
+</head>
+<body>
+<div class="landing">
+  <div class="landing-card">
+    <h1>Medi<span>Flow</span></h1>
+    <p class="subtitle">
+      Intelligent Hospital Queue Management System 2.0<br />
+      Smart priority-based queuing · Specialist booking · Real-time updates
+    </p>
+    <div class="cta-row">
+      <a href="/auth/login" class="btn btn-accent btn-lg">Sign In →</a>
+      <a href="/auth/register" class="btn btn-ghost btn-lg">Create Account</a>
+    </div>
+
+    <div class="features">
+      <div class="feat">
+        <div class="icon">🧠</div>
+        <h3>Smart Priority Queue</h3>
+        <p>Patients prioritized by severity, age, and wait time — not just first-come-first-serve.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">📅</div>
+        <h3>Specialist Booking</h3>
+        <p>Book specialist appointments up to 30 days in advance with conflict detection.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">📡</div>
+        <h3>Real-Time Updates</h3>
+        <p>Live queue position, estimated wait time, and instant notifications via WebSockets.</p>
+      </div>
+      <div class="feat">
+        <div class="icon">🏥</div>
+        <h3>Multi-Hospital</h3>
+        <p>SaaS-ready multi-tenant architecture with isolated data per hospital.</p>
+      </div>
+    </div>
+
+    <div class="version">MediFlow 2.0 · Built with Flask + SocketIO + heapq</div>
+  </div>
+</div>
+</body>
+</html>

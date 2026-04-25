@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+{% block title %}Manage Hospital{% endblock %}
+{% block page_title %}Hospital Management{% endblock %}
+
+{% block nav %}
+<div class="nav-section">Admin</div>
+<a class="nav-item" href="/admin"><span class="icon">📊</span> Dashboard</a>
+<a class="nav-item" href="/admin/logs"><span class="icon">📜</span> Activity Logs</a>
+<a class="nav-item active" href="/admin/manage"><span class="icon">⚙️</span> Manage</a>
+<a class="nav-item" href="/queue-display?hospital_id={{ hospital.id if hospital else 1 }}" target="_blank"><span class="icon">📺</span> Queue Display</a>
+{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-danger btn-sm" id="rebalance-btn" onclick="triggerRebalance()">⚡ Rebalance Queue</button>
+<button class="btn btn-ghost btn-sm" onclick="loadAll()">↻ Refresh</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Hospital Settings -->
+<div class="two-col" style="margin-bottom:24px">
+  <div class="panel">
+    <h3>🏥 Hospital Settings</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Hospital Name</label>
+        <input type="text" id="h-name" value="{{ hospital.name if hospital else '' }}" />
+      </div>
+      <div class="form-group">
+        <label>Phone</label>
+        <input type="text" id="h-phone" value="{{ hospital.phone if hospital else '' }}" placeholder="+91 00000 00000" />
+      </div>
+      <div class="form-group full">
+        <label>Address</label>
+        <input type="text" id="h-address" value="{{ hospital.address if hospital else '' }}" placeholder="Full address" />
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-accent" onclick="saveHospital()">Save Settings</button>
+    </div>
+  </div>
+
+  <!-- Department overview -->
+  <div class="panel">
+    <h3>📊 Department Overview</h3>
+    <div id="dept-overview"><div class="empty">Loading...</div></div>
+  </div>
+</div>
+
+<!-- Doctor Management -->
+<div class="section-header">
+  <span class="section-title">👨‍⚕️ Doctor Management</span>
+  <button class="btn btn-accent btn-sm" onclick="openModal('add-doctor-modal')">＋ Add Doctor</button>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Department</th><th>Specialization</th>
+        <th>Avg Consult</th><th>Status</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="doctors-body">
+      <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Add Doctor Modal -->
+<div class="modal-overlay" id="add-doctor-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('add-doctor-modal')">×</button>
+    <h3>➕ Add Doctor</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="nd-name" placeholder="Dr. Firstname Lastname" />
+      </div>
+      <div class="form-group">
+        <label>Email (Login)</label>
+        <input type="email" id="nd-email" placeholder="doctor@hospital.com" />
+      </div>
+      <div class="form-group">
+        <label>Temporary Password</label>
+        <input type="text" id="nd-password" value="doctor123" />
+      </div>
+      <div class="form-group">
+        <label>Department</label>
+        <input type="text" id="nd-department" list="dept-list" placeholder="e.g. Cardiology" />
+        <datalist id="dept-list">
+          {% for dept in departments %}
+          <option value="{{ dept }}">
+          {% endfor %}
+          <option value="Dermatology">
+          <option value="Paediatrics">
+          <option value="ENT">
+          <option value="Ophthalmology">
+          <option value="Gynaecology">
+          <option value="Psychiatry">
+        </datalist>
+      </div>
+      <div class="form-group">
+        <label>Specialization</label>
+        <input type="text" id="nd-specialization" placeholder="e.g. Interventional Cardiology" />
+      </div>
+      <div class="form-group">
+        <label>Avg Consult (minutes)</label>
+        <input type="number" id="nd-consult" value="12" min="5" max="60" />
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('add-doctor-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="addDoctor()">Add Doctor</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Doctor Modal -->
+<div class="modal-overlay" id="edit-doctor-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('edit-doctor-modal')">×</button>
+    <h3>✏️ Edit Doctor</h3>
+    <input type="hidden" id="ed-id" />
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="ed-name" />
+      </div>
+      <div class="form-group">
+        <label>Department</label>
+        <input type="text" id="ed-department" list="dept-list" />
+      </div>
+      <div class="form-group">
+        <label>Specialization</label>
+        <input type="text" id="ed-specialization" />
+      </div>
+      <div class="form-group">
+        <label>Avg Consult (minutes)</label>
+        <input type="number" id="ed-consult" min="5" max="60" />
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('edit-doctor-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveDoctor()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadAll() {
+  await Promise.all([loadDoctors(), loadDepartments()]);
+}
+
+async function loadDepartments() {
+  try {
+    const depts = await api('/api/manage/departments');
+    const el = document.getElementById('dept-overview');
+    if (!depts.length) { el.innerHTML = '<div class="empty">No departments yet</div>'; return; }
+    el.innerHTML = depts.map(d => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-weight:600;font-size:13px">${d.department}</div>
+          <div style="font-size:11px;color:var(--muted)">${d.doctors} doctor${d.doctors !== 1 ? 's' : ''} available</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--font-mono);color:var(--urgent);font-size:14px">${d.waiting}</div>
+          <div style="font-size:10px;color:var(--muted)">waiting</div>
+        </div>
+      </div>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function loadDoctors() {
+  try {
+    const docs = await api('/api/manage/doctors');
+    const tbody = document.getElementById('doctors-body');
+    if (!docs.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No doctors found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = docs.map(d => `
+      <tr>
+        <td><strong>${d.name}</strong></td>
+        <td>${d.department}</td>
+        <td style="color:var(--muted);font-size:12px">${d.specialization || '—'}</td>
+        <td style="font-family:var(--font-mono)">${d.avg_consult_minutes} min</td>
+        <td>
+          <span class="badge ${d.is_available ? 'badge-normal' : 'badge-critical'}">
+            ${d.is_available ? 'Available' : 'Unavailable'}
+          </span>
+        </td>
+        <td>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="editDoctor(${d.id},'${d.name}','${d.department}','${d.specialization||''}',${d.avg_consult_minutes})">✏️ Edit</button>
+            <button class="btn btn-sm ${d.is_available ? 'btn-danger' : 'btn-success'}" onclick="toggleAvailability(${d.id})">${d.is_available ? '⏸ Off' : '▶ On'}</button>
+          </div>
+        </td>
+      </tr>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function saveHospital() {
+  try {
+    await api('/api/manage/hospital', {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: document.getElementById('h-name').value.trim(),
+        phone: document.getElementById('h-phone').value.trim(),
+        address: document.getElementById('h-address').value.trim(),
+      }),
+    });
+    toast('Saved', 'Hospital settings updated', 'success');
+  } catch(e) { toast('Error', e.message, 'error'); }
+}
+
+async function addDoctor() {
+  try {
+    await api('/api/manage/doctors', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: document.getElementById('nd-name').value.trim(),
+        email: document.getElementById('nd-email').value.trim(),
+        password: document.getElementById('nd-password').value,
+        department: document.getElementById('nd-department').value.trim(),
+        specialization: document.getElementById('nd-specialization').value.trim(),
+        avg_consult_minutes: parseInt(document.getElementById('nd-consult').value),
+      }),
+    });
+    closeModal('add-doctor-modal');
+    toast('Doctor Added', document.getElementById('nd-name').value, 'success');
+    loadAll();
+  } catch(e) { toast('Error', e.message, 'error'); }
+}
+
+function editDoctor(id, name, dept, spec, consult) {
+  document.getElementById('ed-id').value = id;
+  document.getElementById('ed-name').value = name;
+  document.getElementById('ed-department').value = dept;
+  document.getElementById('ed-specialization').value = spec;
+  document.getElementById('ed-consult').value = consult;
+  openModal('edit-doctor-modal');
+}
+
+async function saveDoctor() {
+  const id = document.getElementById('ed-id').value;
+  try {
+    await api(`/api/manage/doctors/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: document.getElementById('ed-name').value.trim(),
+        department: document.getElementById('ed-department').value.trim(),
+        specialization: document.getElementById('ed-specialization').value.trim(),
+        avg_consult_minutes: parseInt(document.getElementById('ed-consult').value),
+      }),
+    });
+    closeModal('edit-doctor-modal');
+    toast('Updated', 'Doctor profile saved', 'success');
+    loadAll();
+  } catch(e) { toast('Error', e.message, 'error'); }
+}
+
+async function toggleAvailability(id) {
+  try {
+    const res = await api(`/api/manage/doctors/${id}/availability`, { method: 'POST' });
+    toast('Updated', res.is_available ? 'Doctor is now available' : 'Doctor marked unavailable', 'success');
+    loadAll();
+  } catch(e) { toast('Error', e.message, 'error'); }
+}
+
+async function triggerRebalance() {
+  const btn = document.getElementById('rebalance-btn');
+  btn.disabled = true;
+  btn.textContent = '⟳ Rebalancing...';
+  try {
+    const res = await api('/api/manage/rebalance', { method: 'POST' });
+    toast('Rebalanced', `${res.patients_rebalanced} patients re-scored`, 'success');
+  } catch(e) { toast('Error', e.message, 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.textContent = '⚡ Rebalance Queue';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadAll);
+</script>
+{% endblock %}

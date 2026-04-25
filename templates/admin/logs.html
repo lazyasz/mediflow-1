@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Activity Logs{% endblock %}
+{% block page_title %}Activity Logs{% endblock %}
+
+{% block nav %}
+<div class="nav-section">Admin</div>
+<a class="nav-item" href="/admin"><span class="icon">📊</span> Dashboard</a>
+<a class="nav-item active" href="/admin/logs"><span class="icon">📜</span> Activity Logs</a>
+{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" onclick="loadLogs()">↻ Refresh</button>
+<button class="btn btn-accent btn-sm" onclick="exportCSV()">📥 Export CSV</button>
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+  <select id="log-action" onchange="loadLogs()" style="padding:8px 12px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:13px">
+    <option value="">All Actions</option>
+    <option value="login">Login</option>
+    <option value="register">Register</option>
+    <option value="checkin">Check-in</option>
+    <option value="token_generated">Token Generated</option>
+    <option value="appointment_booked">Appointment Booked</option>
+    <option value="appointment_cancelled">Appointment Cancelled</option>
+    <option value="priority_override">Priority Override</option>
+    <option value="patient_called">Patient Called</option>
+    <option value="patient_completed">Patient Completed</option>
+    <option value="transfer">Transfer</option>
+    <option value="system">System</option>
+  </select>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>#</th><th>Action</th><th>Details</th><th>User</th><th>Time</th></tr></thead>
+    <tbody id="logs-body"><tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Loading...</td></tr></tbody>
+  </table>
+</div>
+
+<div style="display:flex;justify-content:center;gap:12px;margin-top:20px">
+  <button class="btn btn-ghost btn-sm" id="prev-btn" onclick="changePage(-1)" disabled>← Previous</button>
+  <span id="page-info" style="padding:6px 12px;font-size:13px;color:var(--muted)">Page 1</span>
+  <button class="btn btn-ghost btn-sm" id="next-btn" onclick="changePage(1)">Next →</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let totalPages = 1;
+
+async function loadLogs() {
+  const action = document.getElementById('log-action').value;
+  const params = new URLSearchParams({ page: currentPage, per_page: 30 });
+  if (action) params.set('action', action);
+
+  try {
+    const data = await api(`/api/activity/logs?${params}`);
+    totalPages = data.pages;
+    document.getElementById('page-info').textContent = `Page ${data.page} of ${data.pages} (${data.total} total)`;
+    document.getElementById('prev-btn').disabled = currentPage <= 1;
+    document.getElementById('next-btn').disabled = currentPage >= totalPages;
+
+    const tbody = document.getElementById('logs-body');
+    if (!data.logs.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">No logs found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.logs.map(l => `
+      <tr>
+        <td style="color:var(--muted);font-family:var(--font-mono)">${l.id}</td>
+        <td>${statusBadge(l.action)}</td>
+        <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.details}</td>
+        <td style="font-size:12px;color:var(--muted)">${l.user_email || 'system'}</td>
+        <td style="font-family:var(--font-mono);font-size:12px">${l.timestamp ? new Date(l.timestamp).toLocaleString() : ''}</td>
+      </tr>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+function changePage(delta) {
+  currentPage = Math.max(1, Math.min(totalPages, currentPage + delta));
+  loadLogs();
+}
+
+function exportCSV() {
+  const action = document.getElementById('log-action').value;
+  const params = action ? `?action=${encodeURIComponent(action)}` : '';
+  window.location.href = `/api/activity/export${params}`;
+}
+
+document.addEventListener('DOMContentLoaded', loadLogs);
+</script>
+{% endblock %}

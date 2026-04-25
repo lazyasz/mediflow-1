@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+{% block title %}Doctor Dashboard{% endblock %}
+{% block page_title %}Doctor Dashboard{% endblock %}
+
+{% block nav %}
+<div class="nav-section">Doctor</div>
+<a class="nav-item active" href="/doctor"><span class="icon">🩺</span> My Patients</a>
+{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-accent btn-sm" onclick="callNext()" id="call-next-btn">📣 Call Next</button>
+<button class="btn btn-ghost btn-sm" onclick="refreshAll()">↻ Refresh</button>
+{% endblock %}
+
+{% block content %}
+<!-- Stats -->
+<div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
+  <div class="stat-card accent">
+    <div class="label">My Queue</div>
+    <div class="value" id="stat-queue">—</div>
+    <div class="sub">patients waiting</div>
+  </div>
+  <div class="stat-card critical">
+    <div class="label">Critical</div>
+    <div class="value" id="stat-critical">—</div>
+    <div class="sub">need attention</div>
+  </div>
+  <div class="stat-card success">
+    <div class="label">Completed</div>
+    <div class="value" id="stat-completed">—</div>
+    <div class="sub">today</div>
+  </div>
+  <div class="stat-card tele">
+    <div class="label">Appointments</div>
+    <div class="value" id="stat-appts">—</div>
+    <div class="sub">today</div>
+  </div>
+</div>
+
+<div class="two-col">
+  <!-- Patient Queue -->
+  <div>
+    <div class="section-header">
+      <span class="section-title">My Patient Queue (Priority Sorted)</span>
+      <button class="btn btn-danger btn-sm" onclick="openModal('override-modal')">⚡ Override</button>
+    </div>
+    <div class="queue-list" id="queue-list">
+      <div class="empty"><div class="icon">⏳</div>Loading...</div>
+    </div>
+
+    <!-- Called / In Progress -->
+    <div class="section-header" style="margin-top:24px">
+      <span class="section-title">Called Patients</span>
+    </div>
+    <div class="queue-list" id="called-list">
+      <div class="empty">No patients called yet</div>
+    </div>
+  </div>
+
+  <!-- Right side -->
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <!-- Today's Appointments -->
+    <div class="panel">
+      <h3>📅 Today's Appointments</h3>
+      <div id="today-appts"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- Live Feed -->
+    <div class="panel">
+      <h3>📜 Live Feed</h3>
+      <div class="feed-list" id="feed-list"><div class="empty">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Override Modal -->
+<div class="modal-overlay" id="override-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('override-modal')">×</button>
+    <h3>⚡ Emergency Override</h3>
+    <div class="form-grid" style="grid-template-columns:1fr">
+      <div class="form-group"><label>Token Number</label><input type="text" id="ov-token" placeholder="e.g. G-031" /></div>
+      <div class="form-group"><label>Reason</label><input type="text" id="ov-reason" placeholder="e.g. Cardiac arrest" /></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('override-modal')">Cancel</button>
+      <button class="btn btn-danger" onclick="submitOverride()">Escalate to Critical</button>
+    </div>
+  </div>
+</div>
+
+<!-- Transfer Modal -->
+<div class="modal-overlay" id="transfer-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('transfer-modal')">×</button>
+    <h3>🔄 Transfer Patient</h3>
+    <input type="hidden" id="tr-entry-id" />
+    <p id="tr-patient-name" style="color:var(--muted);margin-bottom:16px;font-size:13px"></p>
+    <div class="form-group">
+      <label>Transfer to Doctor</label>
+      <select id="tr-doctor">
+        <option value="">Loading doctors...</option>
+      </select>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('transfer-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="submitTransfer()">Transfer</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const DOCTOR_ID = parseInt("{{ doctor.id if doctor else 0 }}", 10);
+let allDoctors = [];
+
+// ── Load all doctors for transfer dropdown ──────────────────
+async function loadDoctors() {
+  try {
+    allDoctors = await api('/api/doctors');
+  } catch(e) {}
+}
+
+// ── Call Next ───────────────────────────────────────────────
+async function callNext() {
+  const btn = document.getElementById('call-next-btn');
+  btn.disabled = true;
+  try {
+    const res = await api('/api/queue/call-next', {
+      method: 'POST', body: JSON.stringify({ doctor_id: DOCTOR_ID }),
+    });
+    if (res.success) {
+      toast(`📣 Calling ${res.token}`, res.name, 'success');
+      refreshAll();
+    } else { toast('Queue Empty', res.message || 'No patients waiting', 'error'); }
+  } catch (e) { toast('Error', e.message, 'error'); }
+  finally { btn.disabled = false; }
+}
+
+// ── Mark Complete ───────────────────────────────────────────
+async function markComplete(entryId, token) {
+  try {
+    await api('/api/queue/complete', {
+      method: 'POST', body: JSON.stringify({ queue_entry_id: entryId }),
+    });
+    toast('✅ Completed', `${token} marked as complete`, 'success');
+    refreshAll();
+  } catch (e) { toast('Error', e.message, 'error'); }
+}
+
+// ── Emergency Override ──────────────────────────────────────
+async function submitOverride() {
+  const token = document.getElementById('ov-token').value.trim();
+  const reason = document.getElementById('ov-reason').value.trim();
+  if (!token) { toast('Error', 'Enter token number', 'error'); return; }
+  try {
+    const res = await api('/api/queue/override', {
+      method: 'POST', body: JSON.stringify({ token, reason: reason || 'Emergency' }),
+    });
+    closeModal('override-modal');
+    toast('⚡ Override', res.message, 'success');
+    refreshAll();
+  } catch (e) { toast('Error', e.message, 'error'); }
+}
+
+// ── Open Transfer Modal ─────────────────────────────────────
+function openTransfer(entryId, patientName) {
+  document.getElementById('tr-entry-id').value = entryId;
+  document.getElementById('tr-patient-name').textContent = `Transferring: ${patientName}`;
+
+  // Populate doctor dropdown (exclude self)
+  const sel = document.getElementById('tr-doctor');
+  sel.innerHTML = allDoctors
+    .filter(d => d.id !== DOCTOR_ID && d.is_available)
+    .map(d => `<option value="${d.id}">${d.name} (${d.department})</option>`)
+    .join('');
+  if (!sel.options.length) sel.innerHTML = '<option value="">No other doctors available</option>';
+
+  openModal('transfer-modal');
+}
+
+// ── Submit Transfer ─────────────────────────────────────────
+async function submitTransfer() {
+  const entryId = document.getElementById('tr-entry-id').value;
+  const newDoctorId = document.getElementById('tr-doctor').value;
+  if (!newDoctorId) { toast('Error', 'Select a doctor', 'error'); return; }
+  try {
+    const res = await api('/api/queue/transfer', {
+      method: 'POST',
+      body: JSON.stringify({ queue_entry_id: parseInt(entryId), new_doctor_id: parseInt(newDoctorId) }),
+    });
+    closeModal('transfer-modal');
+    toast('🔄 Transferred', `Patient moved to ${res.new_doctor}`, 'success');
+    refreshAll();
+  } catch (e) { toast('Error', e.message, 'error'); }
+}
+
+// ── Merge appointment into queue ────────────────────────────
+async function mergeAppointment(apptId, patientName) {
+  if (!confirm(`Merge ${patientName}'s appointment into the live queue?`)) return;
+  try {
+    const res = await api('/api/appointments/merge', {
+      method: 'POST', body: JSON.stringify({ appointment_id: apptId }),
+    });
+    toast('🔄 Merged', `Token ${res.token} added to queue`, 'success');
+    refreshAll();
+  } catch (e) { toast('Error', e.message, 'error'); }
+}
+
+// ── Refresh Queue ───────────────────────────────────────────
+async function refreshQueue() {
+  try {
+    const queue = await api(`/api/queue?doctor_id=${DOCTOR_ID}`);
+    const waiting = queue.filter(e => e.status === 'waiting');
+    const called  = queue.filter(e => e.status === 'called');
+
+    // Waiting list
+    const list = document.getElementById('queue-list');
+    if (!waiting.length) {
+      list.innerHTML = '<div class="empty"><div class="icon">✓</div>No patients waiting</div>';
+    } else {
+      list.innerHTML = waiting.map((e, idx) => `
+        <div class="queue-card priority-${e.priority_label}">
+          <div class="token-big">${e.token}</div>
+          <div class="patient-info">
+            <div class="name">${e.patient_name} <span style="color:var(--muted);font-weight:400">· ${e.patient_age}y</span></div>
+            <div class="meta">${e.department} · ${e.symptoms || 'No symptoms listed'}</div>
+            <div style="margin-top:4px">
+              ${priorityBadge(e.priority_label)}
+              <span style="font-size:11px;color:var(--muted);margin-left:6px">Score: ${e.priority_score} · #${idx+1} in queue</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+            <div class="wait">
+              <div class="mins">${e.est_wait_minutes}</div>
+              <div class="label">min wait</div>
+            </div>
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-ghost btn-sm" onclick="openTransfer(${e.id},'${e.patient_name.replace(/'/g,"\\'")}')">🔄</button>
+            </div>
+          </div>
+        </div>`).join('');
+    }
+
+    // Called list
+    const calledList = document.getElementById('called-list');
+    if (!called.length) {
+      calledList.innerHTML = '<div class="empty">No patients called</div>';
+    } else {
+      calledList.innerHTML = called.map(e => `
+        <div class="queue-card" style="border-left:3px solid var(--tele)">
+          <div class="token-big">${e.token}</div>
+          <div class="patient-info">
+            <div class="name">${e.patient_name}</div>
+            <div class="meta">${e.symptoms || ''}</div>
+            <div style="margin-top:4px"><span class="badge badge-tele">Called</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-success btn-sm" onclick="markComplete(${e.id}, '${e.token}')">✓ Complete</button>
+          </div>
+        </div>`).join('');
+    }
+
+    // Update stats
+    document.getElementById('stat-queue').textContent = waiting.length;
+    document.getElementById('stat-critical').textContent = waiting.filter(e => e.priority_label === 'critical').length;
+  } catch (e) { console.error(e); }
+}
+
+// ── Refresh Stats ───────────────────────────────────────────
+async function refreshStats() {
+  try {
+    const s = await api('/api/queue/stats');
+    document.getElementById('stat-completed').textContent = s.completed_today || 0;
+  } catch(e) {}
+
+  try {
+    const appts = await api(`/api/appointments?doctor_id=${DOCTOR_ID}`);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayAppts = appts.filter(a => a.date === todayStr && ['scheduled','confirmed'].includes(a.status));
+    document.getElementById('stat-appts').textContent = todayAppts.length;
+
+    const container = document.getElementById('today-appts');
+    if (!todayAppts.length) {
+      container.innerHTML = '<div class="empty">No appointments today</div>';
+      return;
+    }
+    container.innerHTML = todayAppts.slice(0, 8).map(a => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-weight:600;font-size:13px">${a.patient_name}</div>
+          <div style="font-size:11px;color:var(--muted)">${a.time_slot} · ${a.department}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${typeBadge(a.type)}
+          <button class="btn btn-ghost btn-sm" onclick="mergeAppointment(${a.id},'${a.patient_name.replace(/'/g,"\\'")}')">🔄 Queue</button>
+        </div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+// ── Refresh Feed ────────────────────────────────────────────
+async function refreshFeed() {
+  try {
+    const feed = await api('/api/activity/feed?limit=15');
+    document.getElementById('feed-list').innerHTML = feed.length
+      ? feed.map(f => `<div class="feed-item">${f.message}<div class="time">${timeAgo(f.timestamp)}</div></div>`).join('')
+      : '<div class="empty">No events</div>';
+  } catch(e) {}
+}
+
+async function refreshAll() { await Promise.all([refreshQueue(), refreshStats(), refreshFeed()]); }
+document.addEventListener('DOMContentLoaded', () => {
+  loadDoctors();
+  refreshAll();
+  setInterval(refreshAll, 10000);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}MediFlow{% endblock %} — Hospital Queue Management</title>
+  <meta name="description" content="MediFlow 2.0 — Intelligent Hospital Queue Management System" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<!-- Mobile sidebar overlay -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <h1>Medi<span>Flow</span></h1>
+      <p>{{ hospital.name if hospital else 'Queue Management' }}</p>
+    </div>
+    <nav class="nav">
+      {% block nav %}{% endblock %}
+    </nav>
+    <div class="sidebar-user">
+      <div class="avatar">{{ user.email[0]|upper if user else '?' }}</div>
+      <div class="info">
+        <div class="name">{{ user.email.split('@')[0] if user else 'Guest' }}</div>
+        <div class="role">{{ user.role|upper if user else '' }}</div>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>System Online
+      <a href="/auth/logout" style="float:right;color:var(--critical);font-size:10px;">Logout</a>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <div class="topbar">
+      <!-- Hamburger (mobile only) -->
+      <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <h2 id="page-title">{% block page_title %}Dashboard{% endblock %}</h2>
+      <div class="topbar-right">
+        <div class="time-badge" id="live-clock">--:--:--</div>
+        {% block topbar_actions %}{% endblock %}
+      </div>
+    </div>
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast-container" id="toasts"></div>
+
+<!-- SCRIPTS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script src="{{ url_for('static', filename='js/socket.js') }}"></script>
+<script>
+  // Mobile sidebar toggle
+  function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('sidebar-overlay').classList.toggle('visible');
+  }
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebar-overlay').classList.remove('visible');
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initSocket(parseInt("{{ hospital.id if hospital else 1 }}", 10));
+  });
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
