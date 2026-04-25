@@ -9,6 +9,10 @@ with app.app_context():
     try:
         # If no users exist, automatically run the seed script
         if not User.query.first():
+            from models import db
+            # CRITICAL: Release the DB session transaction lock so Postgres allows dropping tables!
+            db.session.remove()
+            
             print("[WSGI] Database is empty. Running seed script automatically...")
             # Temporarily set SEED_MODE to prevent background rebalancer conflicts
             os.environ['SEED_MODE'] = '1'
