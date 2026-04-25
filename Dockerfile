@@ -24,5 +24,5 @@ COPY . /app/
 # Expose port 5000
 EXPOSE 5000
 
-# Start Gunicorn with eventlet workers for SocketIO, binding to Render's dynamic PORT
-CMD gunicorn --worker-class eventlet -w 1 -b 0.0.0.0:${PORT:-5000} wsgi:app
+# Run the isolated seed check, then start Gunicorn
+CMD python seed_if_empty.py && gunicorn --worker-class eventlet -w 1 -b 0.0.0.0:${PORT:-5000} wsgi:app
